@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { setupAuth } from "./auth";
 import { z } from "zod";
 import { User, UserRole, insertVendorProfileSchema, insertListingSchema, insertCommentSchema, insertOrderSchema, insertPaymentSchema } from "@shared/schema";
+import Stripe from "stripe";
 
 // Middleware to check if user is authenticated
 const isAuthenticated = (req: Request, res: Response, next: NextFunction) => {
@@ -48,6 +49,14 @@ const hasRole = (role: UserRole) => {
 };
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Initialize Stripe
+  if (!process.env.STRIPE_SECRET_KEY) {
+    throw new Error("Missing Stripe secret key environment variable");
+  }
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+    apiVersion: "2023-10-16"
+  });
+  
   // Set up authentication
   setupAuth(app);
   

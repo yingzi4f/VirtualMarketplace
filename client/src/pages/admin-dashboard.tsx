@@ -9,7 +9,6 @@ import {
   CardTitle 
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { 
   Tabs, 
   TabsContent, 
@@ -25,7 +24,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import {
+import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
+import { 
   Dialog,
   DialogContent,
   DialogDescription,
@@ -33,105 +34,73 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { 
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Label } from "@/components/ui/label";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { UserRole } from "@shared/schema";
-import { Shield, Package, Users, CheckCircle, XCircle } from "lucide-react";
+import { useLocation } from "wouter";
+import { Shield, ListChecks, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
 
 export default function AdminDashboard() {
+  const [, navigate] = useLocation();
   const { language, t } = useLanguage();
   const { user } = useAuth();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("vendors");
-  const [vendorDialogOpen, setVendorDialogOpen] = useState(false);
-  const [listingDialogOpen, setListingDialogOpen] = useState(false);
-  const [selectedVendor, setSelectedVendor] = useState<any>(null);
-  const [selectedListing, setSelectedListing] = useState<any>(null);
+  const [reviewVendorDialog, setReviewVendorDialog] = useState<{ open: boolean, vendor: any | null }>({ 
+    open: false, 
+    vendor: null 
+  });
+  const [reviewListingDialog, setReviewListingDialog] = useState<{ open: boolean, listing: any | null }>({ 
+    open: false, 
+    listing: null 
+  });
   const [rejectionReason, setRejectionReason] = useState("");
-  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
-  const [confirmAction, setConfirmAction] = useState<{
-    type: "approve" | "reject";
-    itemType: "vendor" | "listing";
-    id: number;
-  } | null>(null);
   
-  // Fetch pending vendors
-  const { data: vendorsData, isLoading: vendorsLoading } = useQuery<{success: boolean, data: any[]}>({
+  // Fetch pending vendors for approval
+  const { 
+    data: pendingVendorsData, 
+    isLoading: vendorsLoading,
+    refetch: refetchVendors
+  } = useQuery<{success: boolean, data: any[]}>({
     queryKey: ["/api/admin/vendors/pending"],
-    enabled: !!user && user.role === UserRole.ADMIN,
+    enabled: !!user && user.role === "ADMIN",
   });
   
-  const pendingVendors = vendorsData?.success ? vendorsData.data : [];
+  const pendingVendors = pendingVendorsData?.success ? pendingVendorsData.data : [];
   
-  // Fetch pending listings
-  const { data: listingsData, isLoading: listingsLoading } = useQuery<{success: boolean, data: any[]}>({
+  // Fetch pending listings for approval
+  const { 
+    data: pendingListingsData, 
+    isLoading: listingsLoading,
+    refetch: refetchListings
+  } = useQuery<{success: boolean, data: any[]}>({
     queryKey: ["/api/admin/listings/pending"],
-    enabled: !!user && user.role === UserRole.ADMIN,
+    enabled: !!user && user.role === "ADMIN",
   });
   
-  const pendingListings = listingsData?.success ? listingsData.data : [];
+  const pendingListings = pendingListingsData?.success ? pendingListingsData.data : [];
   
-  // Approve vendor mutation
+  // Vendor approval/rejection mutation
   const approveVendorMutation = useMutation({
-    mutationFn: async (vendorId: number) => {
-      const res = await apiRequest("PATCH", `/api/admin/vendors/${vendorId}`, { 
-        verificationStatus: "APPROVED" 
+    mutationFn: async ({ id, status, reason }: { id: number, status: string, reason?: string }) => {
+      const res = await apiRequest("PATCH", `/api/admin/vendors/${id}`, {
+        verificationStatus: status,
+        rejectionReason: reason
       });
       return await res.json();
     },
     onSuccess: () => {
-      toast({
-        title: language === 'en' ? "Vendor approved" : "商家已批准",
-        description: language === 'en' 
-          ? "The vendor has been approved successfully." 
-          : "商家已成功获得批准。",
-      });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/vendors/pending"] });
-      setVendorDialogOpen(false);
-      setConfirmDialogOpen(false);
-    },
-    onError: (error: Error) => {
-      toast({
-        title: language === 'en' ? "Error" : "错误",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
-  
-  // Reject vendor mutation
-  const rejectVendorMutation = useMutation({
-    mutationFn: async (vendorId: number) => {
-      const res = await apiRequest("PATCH", `/api/admin/vendors/${vendorId}`, { 
-        verificationStatus: "REJECTED",
-        rejectionReason
-      });
-      return await res.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: language === 'en' ? "Vendor rejected" : "商家已拒绝",
-        description: language === 'en' 
-          ? "The vendor has been rejected." 
-          : "商家已被拒绝。",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/vendors/pending"] });
-      setVendorDialogOpen(false);
+      setReviewVendorDialog({ open: false, vendor: null });
       setRejectionReason("");
-      setConfirmDialogOpen(false);
+      
+      toast({
+        title: language === 'en' ? "Success" : "成功",
+        description: language === 'en' 
+          ? "Vendor status updated successfully" 
+          : "供应商状态已成功更新",
+      });
     },
     onError: (error: Error) => {
       toast({
@@ -142,54 +111,26 @@ export default function AdminDashboard() {
     },
   });
   
-  // Approve listing mutation
+  // Listing approval/rejection mutation
   const approveListingMutation = useMutation({
-    mutationFn: async (listingId: number) => {
-      const res = await apiRequest("PATCH", `/api/admin/listings/${listingId}`, { 
-        status: "APPROVED" 
+    mutationFn: async ({ id, status, reason }: { id: number, status: string, reason?: string }) => {
+      const res = await apiRequest("PATCH", `/api/admin/listings/${id}`, {
+        status,
+        rejectionReason: reason
       });
       return await res.json();
     },
     onSuccess: () => {
-      toast({
-        title: language === 'en' ? "Listing approved" : "商品已批准",
-        description: language === 'en' 
-          ? "The listing has been approved successfully." 
-          : "商品已成功获得批准。",
-      });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/listings/pending"] });
-      setListingDialogOpen(false);
-      setConfirmDialogOpen(false);
-    },
-    onError: (error: Error) => {
-      toast({
-        title: language === 'en' ? "Error" : "错误",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
-  
-  // Reject listing mutation
-  const rejectListingMutation = useMutation({
-    mutationFn: async (listingId: number) => {
-      const res = await apiRequest("PATCH", `/api/admin/listings/${listingId}`, { 
-        status: "REJECTED",
-        rejectionReason
-      });
-      return await res.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: language === 'en' ? "Listing rejected" : "商品已拒绝",
-        description: language === 'en' 
-          ? "The listing has been rejected." 
-          : "商品已被拒绝。",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/listings/pending"] });
-      setListingDialogOpen(false);
+      setReviewListingDialog({ open: false, listing: null });
       setRejectionReason("");
-      setConfirmDialogOpen(false);
+      
+      toast({
+        title: language === 'en' ? "Success" : "成功",
+        description: language === 'en' 
+          ? "Listing status updated successfully" 
+          : "商品状态已成功更新",
+      });
     },
     onError: (error: Error) => {
       toast({
@@ -200,121 +141,87 @@ export default function AdminDashboard() {
     },
   });
   
-  // Handle review actions
-  const handleReviewVendor = (vendor: any) => {
-    setSelectedVendor(vendor);
-    setVendorDialogOpen(true);
-  };
-  
-  const handleReviewListing = (listing: any) => {
-    setSelectedListing(listing);
-    setListingDialogOpen(true);
-  };
-  
-  const handleApproveVendor = () => {
-    if (!selectedVendor) return;
+  // Handle vendor approval
+  const handleVendorApproval = (approve: boolean) => {
+    if (!reviewVendorDialog.vendor) return;
     
-    setConfirmAction({
-      type: "approve",
-      itemType: "vendor",
-      id: selectedVendor.id
-    });
-    setConfirmDialogOpen(true);
-  };
-  
-  const handleRejectVendor = () => {
-    if (!selectedVendor || !rejectionReason.trim()) {
+    // If rejecting, require a reason
+    if (!approve && !rejectionReason.trim()) {
       toast({
-        title: language === 'en' ? "Rejection reason required" : "拒绝原因必填",
+        title: language === 'en' ? "Rejection reason required" : "需要拒绝理由",
         description: language === 'en' 
-          ? "Please provide a reason for rejection." 
-          : "请提供拒绝原因。",
+          ? "Please provide a reason for rejecting this vendor" 
+          : "请提供拒绝此供应商的理由",
         variant: "destructive",
       });
       return;
     }
     
-    setConfirmAction({
-      type: "reject",
-      itemType: "vendor",
-      id: selectedVendor.id
+    approveVendorMutation.mutate({
+      id: reviewVendorDialog.vendor.id,
+      status: approve ? "APPROVED" : "REJECTED",
+      reason: approve ? undefined : rejectionReason
     });
-    setConfirmDialogOpen(true);
   };
   
-  const handleApproveListing = () => {
-    if (!selectedListing) return;
+  // Handle listing approval
+  const handleListingApproval = (approve: boolean) => {
+    if (!reviewListingDialog.listing) return;
     
-    setConfirmAction({
-      type: "approve",
-      itemType: "listing",
-      id: selectedListing.id
-    });
-    setConfirmDialogOpen(true);
-  };
-  
-  const handleRejectListing = () => {
-    if (!selectedListing || !rejectionReason.trim()) {
+    // If rejecting, require a reason
+    if (!approve && !rejectionReason.trim()) {
       toast({
-        title: language === 'en' ? "Rejection reason required" : "拒绝原因必填",
+        title: language === 'en' ? "Rejection reason required" : "需要拒绝理由",
         description: language === 'en' 
-          ? "Please provide a reason for rejection." 
-          : "请提供拒绝原因。",
+          ? "Please provide a reason for rejecting this listing" 
+          : "请提供拒绝此商品的理由",
         variant: "destructive",
       });
       return;
     }
     
-    setConfirmAction({
-      type: "reject",
-      itemType: "listing",
-      id: selectedListing.id
+    approveListingMutation.mutate({
+      id: reviewListingDialog.listing.id,
+      status: approve ? "APPROVED" : "REJECTED",
+      reason: approve ? undefined : rejectionReason
     });
-    setConfirmDialogOpen(true);
   };
   
-  const confirmActionHandler = () => {
-    if (!confirmAction) return;
-    
-    const { type, itemType, id } = confirmAction;
-    
-    if (itemType === "vendor") {
-      if (type === "approve") {
-        approveVendorMutation.mutate(id);
-      } else {
-        rejectVendorMutation.mutate(id);
-      }
-    } else {
-      if (type === "approve") {
-        approveListingMutation.mutate(id);
-      } else {
-        rejectListingMutation.mutate(id);
-      }
-    }
-  };
-  
-  // Check if user is admin
-  if (!user || user.role !== UserRole.ADMIN) {
+  // Redirect if user is not an admin
+  if (user && user.role !== "ADMIN") {
     return (
-      <div className="container mx-auto px-4 py-12">
-        <Card className="max-w-md mx-auto">
+      <div className="container mx-auto px-4 py-8">
+        <Card className="max-w-2xl mx-auto">
           <CardHeader>
-            <CardTitle className="text-center text-red-600">
+            <CardTitle className="text-center">
               {language === 'en' ? "Access Denied" : "访问被拒绝"}
             </CardTitle>
-          </CardHeader>
-          <CardContent className="text-center">
-            <Shield className="w-16 h-16 mx-auto text-red-500 mb-4" />
-            <p className="mb-4">
+            <CardDescription className="text-center">
               {language === 'en' 
-                ? "You don't have permission to access the admin dashboard."
-                : "您没有权限访问管理员仪表板。"
+                ? "You don't have permission to access this page" 
+                : "您没有权限访问此页面"
               }
-            </p>
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="bg-amber-50 p-4 rounded-md flex items-start space-x-3">
+              <AlertTriangle className="h-5 w-5 text-amber-500 mt-0.5" />
+              <div>
+                <h3 className="font-medium text-amber-800">
+                  {language === 'en' ? "Admin Access Required" : "需要管理员访问权限"}
+                </h3>
+                <p className="text-amber-700 text-sm mt-1">
+                  {language === 'en'
+                    ? "This dashboard is only accessible to administrators." 
+                    : "此仪表板仅供管理员访问。"
+                  }
+                </p>
+              </div>
+            </div>
           </CardContent>
-          <CardFooter className="justify-center">
-            <Button variant="default" asChild>
-              <a href="/">{language === 'en' ? "Return to Home" : "返回首页"}</a>
+          <CardFooter className="flex justify-center">
+            <Button onClick={() => navigate("/")}>
+              {language === 'en' ? "Return to Home" : "返回首页"}
             </Button>
           </CardFooter>
         </Card>
@@ -322,14 +229,28 @@ export default function AdminDashboard() {
     );
   }
   
+  // Loading state
+  if (!user || vendorsLoading || listingsLoading) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="flex justify-center items-center h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
+        </div>
+      </div>
+    );
+  }
+  
   return (
     <div className="container mx-auto px-4 py-8">
-      <div className="mb-6">
-        <h1 className="text-2xl md:text-3xl font-bold">{t("adminDashboard")}</h1>
+      <div className="flex flex-col mb-8">
+        <h1 className="text-2xl md:text-3xl font-bold flex items-center">
+          <Shield className="mr-2 h-6 w-6" />
+          {language === 'en' ? "Admin Dashboard" : "管理员仪表板"}
+        </h1>
         <p className="text-gray-600">
           {language === 'en' 
-            ? "Manage vendors, listings, and platform settings" 
-            : "管理商家、商品和平台设置"
+            ? `Welcome, ${user.firstName} ${user.lastName}` 
+            : `欢迎，${user.firstName} ${user.lastName}`
           }
         </p>
       </div>
@@ -337,67 +258,50 @@ export default function AdminDashboard() {
       <Tabs defaultValue="vendors" value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-6">
           <TabsTrigger value="vendors">
-            <Users className="h-4 w-4 mr-2" />
-            {t("pendingVendors")}
-            {pendingVendors.length > 0 && (
-              <Badge className="ml-2" variant="secondary">{pendingVendors.length}</Badge>
-            )}
+            {language === 'en' ? "Pending Vendors" : "待审核商家"}
           </TabsTrigger>
           <TabsTrigger value="listings">
-            <Package className="h-4 w-4 mr-2" />
-            {t("pendingListings")}
-            {pendingListings.length > 0 && (
-              <Badge className="ml-2" variant="secondary">{pendingListings.length}</Badge>
-            )}
+            {language === 'en' ? "Pending Listings" : "待审核商品"}
           </TabsTrigger>
         </TabsList>
         
-        {/* Pending Vendors Tab */}
+        {/* Vendors Tab */}
         <TabsContent value="vendors">
           <Card>
             <CardHeader>
-              <CardTitle>{t("pendingVendors")}</CardTitle>
+              <CardTitle>{language === 'en' ? "Pending Vendor Applications" : "待审核商家申请"}</CardTitle>
               <CardDescription>
                 {language === 'en' 
-                  ? "Review and approve vendor applications" 
-                  : "审核和批准商家申请"
+                  ? "Review and approve vendor registration requests" 
+                  : "审核和批准商家注册请求"
                 }
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {vendorsLoading ? (
-                <div className="flex justify-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
-                </div>
-              ) : pendingVendors.length > 0 ? (
+              {pendingVendors.length > 0 ? (
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-[200px]">
-                          {language === 'en' ? "Company Name" : "公司名称"}
-                        </TableHead>
-                        <TableHead className="hidden md:table-cell">
-                          {language === 'en' ? "Business Number" : "营业执照号"}
-                        </TableHead>
-                        <TableHead className="hidden md:table-cell">
-                          {language === 'en' ? "Application Date" : "申请日期"}
-                        </TableHead>
+                        <TableHead className="w-[100px]">{language === 'en' ? "ID" : "ID"}</TableHead>
+                        <TableHead>{language === 'en' ? "Company" : "公司"}</TableHead>
+                        <TableHead>{language === 'en' ? "Date Applied" : "申请日期"}</TableHead>
                         <TableHead>{language === 'en' ? "Actions" : "操作"}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {pendingVendors.map((vendor) => (
                         <TableRow key={vendor.id}>
-                          <TableCell className="font-medium">{vendor.companyName}</TableCell>
-                          <TableCell className="hidden md:table-cell">
-                            {vendor.businessNumber || "-"}
-                          </TableCell>
-                          <TableCell className="hidden md:table-cell">
+                          <TableCell className="font-medium">{vendor.id}</TableCell>
+                          <TableCell>{vendor.companyName}</TableCell>
+                          <TableCell>
                             {new Date(vendor.createdAt).toLocaleDateString()}
                           </TableCell>
                           <TableCell>
-                            <Button variant="outline" size="sm" onClick={() => handleReviewVendor(vendor)}>
+                            <Button 
+                              onClick={() => setReviewVendorDialog({ open: true, vendor })}
+                              size="sm"
+                            >
                               {language === 'en' ? "Review" : "审核"}
                             </Button>
                           </TableCell>
@@ -408,13 +312,13 @@ export default function AdminDashboard() {
                 </div>
               ) : (
                 <div className="text-center py-12">
-                  <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
+                  <ListChecks className="h-12 w-12 mx-auto text-gray-400 mb-4" />
                   <h3 className="text-lg font-medium mb-2">
                     {language === 'en' ? "No pending vendors" : "没有待审核的商家"}
                   </h3>
                   <p className="text-gray-600 max-w-md mx-auto">
-                    {language === 'en' 
-                      ? "There are no vendor applications waiting for review at this time."
+                    {language === 'en'
+                      ? "There are no vendor applications waiting for review."
                       : "目前没有等待审核的商家申请。"
                     }
                   </p>
@@ -424,61 +328,45 @@ export default function AdminDashboard() {
           </Card>
         </TabsContent>
         
-        {/* Pending Listings Tab */}
+        {/* Listings Tab */}
         <TabsContent value="listings">
           <Card>
             <CardHeader>
-              <CardTitle>{t("pendingListings")}</CardTitle>
+              <CardTitle>{language === 'en' ? "Pending Listings" : "待审核商品"}</CardTitle>
               <CardDescription>
                 {language === 'en' 
-                  ? "Review and approve product listings" 
-                  : "审核和批准产品列表"
+                  ? "Review and approve product and service listings" 
+                  : "审核和批准产品和服务列表"
                 }
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {listingsLoading ? (
-                <div className="flex justify-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
-                </div>
-              ) : pendingListings.length > 0 ? (
+              {pendingListings.length > 0 ? (
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-[300px]">
-                          {language === 'en' ? "Title" : "标题"}
-                        </TableHead>
-                        <TableHead className="hidden md:table-cell">
-                          {language === 'en' ? "Vendor" : "商家"}
-                        </TableHead>
-                        <TableHead>
-                          {language === 'en' ? "Price" : "价格"}
-                        </TableHead>
-                        <TableHead className="hidden md:table-cell">
-                          {language === 'en' ? "Submission Date" : "提交日期"}
-                        </TableHead>
+                        <TableHead className="w-[100px]">{language === 'en' ? "ID" : "ID"}</TableHead>
+                        <TableHead>{language === 'en' ? "Title" : "标题"}</TableHead>
+                        <TableHead>{language === 'en' ? "Vendor" : "商家"}</TableHead>
+                        <TableHead>{language === 'en' ? "Price" : "价格"}</TableHead>
                         <TableHead>{language === 'en' ? "Actions" : "操作"}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {pendingListings.map((listing) => (
                         <TableRow key={listing.id}>
-                          <TableCell className="font-medium">
+                          <TableCell className="font-medium">{listing.id}</TableCell>
+                          <TableCell>
                             {language === 'en' ? listing.titleEn : listing.titleZh}
                           </TableCell>
-                          <TableCell className="hidden md:table-cell">
-                            {/* TODO: Replace with real vendor name when available */}
-                            {listing.vendorId}
-                          </TableCell>
+                          <TableCell>{listing.vendorId}</TableCell>
+                          <TableCell>${listing.price.toFixed(2)}</TableCell>
                           <TableCell>
-                            ${listing.price.toFixed(2)}
-                          </TableCell>
-                          <TableCell className="hidden md:table-cell">
-                            {new Date(listing.createdAt).toLocaleDateString()}
-                          </TableCell>
-                          <TableCell>
-                            <Button variant="outline" size="sm" onClick={() => handleReviewListing(listing)}>
+                            <Button 
+                              onClick={() => setReviewListingDialog({ open: true, listing })}
+                              size="sm"
+                            >
                               {language === 'en' ? "Review" : "审核"}
                             </Button>
                           </TableCell>
@@ -489,13 +377,13 @@ export default function AdminDashboard() {
                 </div>
               ) : (
                 <div className="text-center py-12">
-                  <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
+                  <ListChecks className="h-12 w-12 mx-auto text-gray-400 mb-4" />
                   <h3 className="text-lg font-medium mb-2">
                     {language === 'en' ? "No pending listings" : "没有待审核的商品"}
                   </h3>
                   <p className="text-gray-600 max-w-md mx-auto">
-                    {language === 'en' 
-                      ? "There are no listings waiting for review at this time."
+                    {language === 'en'
+                      ? "There are no listings waiting for review."
                       : "目前没有等待审核的商品。"
                     }
                   </p>
@@ -507,273 +395,296 @@ export default function AdminDashboard() {
       </Tabs>
       
       {/* Vendor Review Dialog */}
-      <Dialog open={vendorDialogOpen} onOpenChange={setVendorDialogOpen}>
+      <Dialog open={reviewVendorDialog.open} onOpenChange={(open) => {
+        setReviewVendorDialog({ ...reviewVendorDialog, open });
+        if (!open) setRejectionReason("");
+      }}>
         <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>
-              {language === 'en' ? "Review Vendor Application" : "审核商家申请"}
-            </DialogTitle>
-            <DialogDescription>
-              {language === 'en'
-                ? "Review the vendor's information and approve or reject their application."
-                : "审核商家的信息并批准或拒绝其申请。"
-              }
-            </DialogDescription>
-          </DialogHeader>
-          
-          {selectedVendor && (
-            <div className="space-y-6">
-              <div>
-                <h3 className="font-medium mb-2">
-                  {language === 'en' ? "Company Information" : "公司信息"}
-                </h3>
-                <div className="space-y-4">
+          {reviewVendorDialog.vendor && (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  {language === 'en' ? "Review Vendor Application" : "审核商家申请"}
+                </DialogTitle>
+                <DialogDescription>
+                  {language === 'en'
+                    ? "Review the vendor details and approve or reject the application"
+                    : "查看商家详情并批准或拒绝申请"
+                  }
+                </DialogDescription>
+              </DialogHeader>
+              
+              <div className="space-y-6 mt-4">
+                <div>
+                  <h3 className="text-lg font-medium mb-2">
+                    {language === 'en' ? "Vendor Details" : "商家详情"}
+                  </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <Label>{language === 'en' ? "Company Name" : "公司名称"}</Label>
-                      <div className="p-2 bg-gray-50 rounded mt-1">
-                        {selectedVendor.companyName}
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">
+                          {language === 'en' ? "Company Name:" : "公司名称:"}
+                        </span>
+                        <span className="font-medium">{reviewVendorDialog.vendor.companyName}</span>
                       </div>
-                    </div>
-                    <div>
-                      <Label>{language === 'en' ? "Business Number" : "营业执照号"}</Label>
-                      <div className="p-2 bg-gray-50 rounded mt-1">
-                        {selectedVendor.businessNumber || "-"}
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">
+                          {language === 'en' ? "Applied On:" : "申请日期:"}
+                        </span>
+                        <span>
+                          {new Date(reviewVendorDialog.vendor.createdAt).toLocaleDateString()}
+                        </span>
                       </div>
+                      {reviewVendorDialog.vendor.businessNumber && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">
+                            {language === 'en' ? "Business Number:" : "营业执照号:"}
+                          </span>
+                          <span>{reviewVendorDialog.vendor.businessNumber}</span>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="space-y-2">
+                      {reviewVendorDialog.vendor.website && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">
+                            {language === 'en' ? "Website:" : "网站:"}
+                          </span>
+                          <a 
+                            href={reviewVendorDialog.vendor.website} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:underline"
+                          >
+                            {reviewVendorDialog.vendor.website}
+                          </a>
+                        </div>
+                      )}
                     </div>
                   </div>
                   
-                  <div>
-                    <Label>{language === 'en' ? "Website" : "网站"}</Label>
-                    <div className="p-2 bg-gray-50 rounded mt-1">
-                      {selectedVendor.website || "-"}
-                    </div>
-                  </div>
+                  <Separator className="my-4" />
                   
                   <div>
-                    <Label>{language === 'en' ? "Description" : "描述"}</Label>
-                    <div className="p-2 bg-gray-50 rounded mt-1 whitespace-pre-wrap">
-                      {selectedVendor.description}
-                    </div>
+                    <h4 className="font-medium mb-2">
+                      {language === 'en' ? "Description:" : "描述:"}
+                    </h4>
+                    <p className="text-gray-700 bg-gray-50 p-3 rounded-md">
+                      {reviewVendorDialog.vendor.description}
+                    </p>
                   </div>
-                  
-                  <div>
-                    <Label>{language === 'en' ? "Application Date" : "申请日期"}</Label>
-                    <div className="p-2 bg-gray-50 rounded mt-1">
-                      {new Date(selectedVendor.createdAt).toLocaleDateString()}
-                    </div>
-                  </div>
+                </div>
+                
+                {/* Rejection reason textarea (only shown when rejecting) */}
+                <div className="space-y-2">
+                  <h4 className="font-medium">
+                    {language === 'en' ? "Rejection Reason:" : "拒绝理由:"}
+                  </h4>
+                  <Textarea
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.target.value)}
+                    rows={3}
+                    placeholder={language === 'en' 
+                      ? "If rejecting, please provide a reason..." 
+                      : "如果拒绝，请提供原因..."
+                    }
+                  />
+                  <p className="text-xs text-gray-500">
+                    {language === 'en'
+                      ? "This will be shared with the vendor if you reject their application."
+                      : "如果您拒绝他们的申请，这将与商家共享。"
+                    }
+                  </p>
                 </div>
               </div>
               
-              <div>
-                <Label htmlFor="rejectionReason">
-                  {language === 'en' ? "Rejection Reason (required if rejecting)" : "拒绝原因（如果拒绝，则为必填）"}
-                </Label>
-                <Textarea
-                  id="rejectionReason"
-                  value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value)}
-                  placeholder={language === 'en' 
-                    ? "Provide detailed reason for rejection..." 
-                    : "提供详细的拒绝原因..."
-                  }
-                  rows={3}
-                  className="mt-1"
-                />
-              </div>
-              
-              <DialogFooter className="gap-2 sm:gap-0">
-                <Button variant="outline" onClick={() => setVendorDialogOpen(false)}>
-                  {language === 'en' ? "Cancel" : "取消"}
-                </Button>
-                <Button 
-                  variant="destructive" 
-                  onClick={handleRejectVendor} 
-                  disabled={!rejectionReason.trim()}
-                >
-                  <XCircle className="h-4 w-4 mr-2" />
-                  {t("reject")}
-                </Button>
-                <Button variant="default" onClick={handleApproveVendor}>
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  {t("approve")}
-                </Button>
+              <DialogFooter className="flex justify-between space-x-4">
+                <div className="space-x-2">
+                  <Button
+                    onClick={() => handleVendorApproval(false)}
+                    variant="destructive"
+                    disabled={approveVendorMutation.isPending}
+                  >
+                    <XCircle className="mr-2 h-4 w-4" />
+                    {language === 'en' ? "Reject" : "拒绝"}
+                  </Button>
+                </div>
+                
+                <div className="space-x-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setReviewVendorDialog({ open: false, vendor: null })}
+                    disabled={approveVendorMutation.isPending}
+                  >
+                    {language === 'en' ? "Cancel" : "取消"}
+                  </Button>
+                  <Button
+                    onClick={() => handleVendorApproval(true)}
+                    disabled={approveVendorMutation.isPending}
+                  >
+                    <CheckCircle className="mr-2 h-4 w-4" />
+                    {language === 'en' ? "Approve" : "批准"}
+                  </Button>
+                </div>
               </DialogFooter>
-            </div>
+            </>
           )}
         </DialogContent>
       </Dialog>
       
       {/* Listing Review Dialog */}
-      <Dialog open={listingDialogOpen} onOpenChange={setListingDialogOpen}>
+      <Dialog open={reviewListingDialog.open} onOpenChange={(open) => {
+        setReviewListingDialog({ ...reviewListingDialog, open });
+        if (!open) setRejectionReason("");
+      }}>
         <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>
-              {language === 'en' ? "Review Listing" : "审核商品"}
-            </DialogTitle>
-            <DialogDescription>
-              {language === 'en'
-                ? "Review the product listing and approve or reject it."
-                : "审核产品列表并批准或拒绝它。"
-              }
-            </DialogDescription>
-          </DialogHeader>
-          
-          {selectedListing && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {reviewListingDialog.listing && (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  {language === 'en' ? "Review Listing" : "审核商品"}
+                </DialogTitle>
+                <DialogDescription>
+                  {language === 'en'
+                    ? "Review the listing details and approve or reject it"
+                    : "查看商品详情并批准或拒绝"
+                  }
+                </DialogDescription>
+              </DialogHeader>
+              
+              <div className="space-y-6 mt-4">
                 <div>
-                  {selectedListing.images && selectedListing.images.length > 0 ? (
-                    <div className="rounded-md overflow-hidden bg-gray-100 h-48">
-                      <img 
-                        src={selectedListing.images[0]} 
-                        alt={language === 'en' ? selectedListing.titleEn : selectedListing.titleZh}
-                        className="w-full h-full object-cover"
-                      />
+                  <h3 className="text-lg font-medium mb-2">
+                    {language === 'en' ? "Listing Details" : "商品详情"}
+                  </h3>
+                  
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <h4 className="font-medium text-gray-500">
+                          {language === 'en' ? "Title (English):" : "标题（英文）:"}
+                        </h4>
+                        <p>{reviewListingDialog.listing.titleEn}</p>
+                      </div>
+                      <div>
+                        <h4 className="font-medium text-gray-500">
+                          {language === 'en' ? "Title (Chinese):" : "标题（中文）:"}
+                        </h4>
+                        <p>{reviewListingDialog.listing.titleZh}</p>
+                      </div>
                     </div>
-                  ) : (
-                    <div className="rounded-md bg-gray-100 h-48 flex items-center justify-center">
-                      <p className="text-gray-500">
-                        {language === 'en' ? "No image available" : "没有可用的图片"}
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <h4 className="font-medium text-gray-500">
+                          {language === 'en' ? "Price:" : "价格:"}
+                        </h4>
+                        <p>${reviewListingDialog.listing.price.toFixed(2)}</p>
+                      </div>
+                      <div>
+                        <h4 className="font-medium text-gray-500">
+                          {language === 'en' ? "Type:" : "类型:"}
+                        </h4>
+                        <p>{reviewListingDialog.listing.type}</p>
+                      </div>
+                      <div>
+                        <h4 className="font-medium text-gray-500">
+                          {language === 'en' ? "Vendor ID:" : "商家ID:"}
+                        </h4>
+                        <p>{reviewListingDialog.listing.vendorId}</p>
+                      </div>
+                    </div>
+                    
+                    <Separator />
+                    
+                    <div>
+                      <h4 className="font-medium text-gray-500">
+                        {language === 'en' ? "Description (English):" : "描述（英文）:"}
+                      </h4>
+                      <p className="bg-gray-50 p-3 rounded-md">
+                        {reviewListingDialog.listing.descriptionEn}
                       </p>
                     </div>
-                  )}
-                </div>
-                
-                <div>
-                  <div className="space-y-4">
-                    <div>
-                      <Label>{language === 'en' ? "Title (English)" : "标题（英文）"}</Label>
-                      <div className="p-2 bg-gray-50 rounded mt-1">
-                        {selectedListing.titleEn}
-                      </div>
-                    </div>
                     
                     <div>
-                      <Label>{language === 'en' ? "Title (Chinese)" : "标题（中文）"}</Label>
-                      <div className="p-2 bg-gray-50 rounded mt-1">
-                        {selectedListing.titleZh}
-                      </div>
+                      <h4 className="font-medium text-gray-500">
+                        {language === 'en' ? "Description (Chinese):" : "描述（中文）:"}
+                      </h4>
+                      <p className="bg-gray-50 p-3 rounded-md">
+                        {reviewListingDialog.listing.descriptionZh}
+                      </p>
                     </div>
                     
-                    <div>
-                      <Label>{language === 'en' ? "Price" : "价格"}</Label>
-                      <div className="p-2 bg-gray-50 rounded mt-1">
-                        ${selectedListing.price.toFixed(2)}
+                    {reviewListingDialog.listing.deliveryInstructions && (
+                      <div>
+                        <h4 className="font-medium text-gray-500">
+                          {language === 'en' ? "Delivery Instructions:" : "交付说明:"}
+                        </h4>
+                        <p className="bg-gray-50 p-3 rounded-md">
+                          {reviewListingDialog.listing.deliveryInstructions}
+                        </p>
                       </div>
-                    </div>
-                    
-                    <div>
-                      <Label>{language === 'en' ? "Type" : "类型"}</Label>
-                      <div className="p-2 bg-gray-50 rounded mt-1">
-                        {selectedListing.type === "SERVICE" 
-                          ? (language === 'en' ? "Service" : "服务") 
-                          : (language === 'en' ? "Digital Product" : "数字产品")
-                        }
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="space-y-4">
-                <div>
-                  <Label>{language === 'en' ? "Description (English)" : "描述（英文）"}</Label>
-                  <div className="p-2 bg-gray-50 rounded mt-1 whitespace-pre-wrap">
-                    {selectedListing.descriptionEn}
+                    )}
                   </div>
                 </div>
                 
-                <div>
-                  <Label>{language === 'en' ? "Description (Chinese)" : "描述（中文）"}</Label>
-                  <div className="p-2 bg-gray-50 rounded mt-1 whitespace-pre-wrap">
-                    {selectedListing.descriptionZh}
-                  </div>
+                {/* Rejection reason textarea (only shown when rejecting) */}
+                <div className="space-y-2">
+                  <h4 className="font-medium">
+                    {language === 'en' ? "Rejection Reason:" : "拒绝理由:"}
+                  </h4>
+                  <Textarea
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.target.value)}
+                    rows={3}
+                    placeholder={language === 'en' 
+                      ? "If rejecting, please provide a reason..." 
+                      : "如果拒绝，请提供原因..."
+                    }
+                  />
+                  <p className="text-xs text-gray-500">
+                    {language === 'en'
+                      ? "This will be shared with the vendor if you reject their listing."
+                      : "如果您拒绝他们的商品，这将与商家共享。"
+                    }
+                  </p>
+                </div>
+              </div>
+              
+              <DialogFooter className="flex justify-between space-x-4">
+                <div className="space-x-2">
+                  <Button
+                    onClick={() => handleListingApproval(false)}
+                    variant="destructive"
+                    disabled={approveListingMutation.isPending}
+                  >
+                    <XCircle className="mr-2 h-4 w-4" />
+                    {language === 'en' ? "Reject" : "拒绝"}
+                  </Button>
                 </div>
                 
-                {selectedListing.deliveryInstructions && (
-                  <div>
-                    <Label>{language === 'en' ? "Delivery Instructions" : "交付说明"}</Label>
-                    <div className="p-2 bg-gray-50 rounded mt-1 whitespace-pre-wrap">
-                      {selectedListing.deliveryInstructions}
-                    </div>
-                  </div>
-                )}
-              </div>
-              
-              <div>
-                <Label htmlFor="listingRejectionReason">
-                  {language === 'en' ? "Rejection Reason (required if rejecting)" : "拒绝原因（如果拒绝，则为必填）"}
-                </Label>
-                <Textarea
-                  id="listingRejectionReason"
-                  value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value)}
-                  placeholder={language === 'en' 
-                    ? "Provide detailed reason for rejection..." 
-                    : "提供详细的拒绝原因..."
-                  }
-                  rows={3}
-                  className="mt-1"
-                />
-              </div>
-              
-              <DialogFooter className="gap-2 sm:gap-0">
-                <Button variant="outline" onClick={() => setListingDialogOpen(false)}>
-                  {language === 'en' ? "Cancel" : "取消"}
-                </Button>
-                <Button 
-                  variant="destructive" 
-                  onClick={handleRejectListing} 
-                  disabled={!rejectionReason.trim()}
-                >
-                  <XCircle className="h-4 w-4 mr-2" />
-                  {t("reject")}
-                </Button>
-                <Button variant="default" onClick={handleApproveListing}>
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  {t("approve")}
-                </Button>
+                <div className="space-x-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setReviewListingDialog({ open: false, listing: null })}
+                    disabled={approveListingMutation.isPending}
+                  >
+                    {language === 'en' ? "Cancel" : "取消"}
+                  </Button>
+                  <Button
+                    onClick={() => handleListingApproval(true)}
+                    disabled={approveListingMutation.isPending}
+                  >
+                    <CheckCircle className="mr-2 h-4 w-4" />
+                    {language === 'en' ? "Approve" : "批准"}
+                  </Button>
+                </div>
               </DialogFooter>
-            </div>
+            </>
           )}
         </DialogContent>
       </Dialog>
-      
-      {/* Confirmation Dialog */}
-      <AlertDialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {confirmAction?.type === "approve" 
-                ? (language === 'en' ? "Confirm Approval" : "确认批准") 
-                : (language === 'en' ? "Confirm Rejection" : "确认拒绝")
-              }
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {confirmAction?.type === "approve" 
-                ? (language === 'en' 
-                    ? `Are you sure you want to approve this ${confirmAction?.itemType}?` 
-                    : `您确定要批准这个${confirmAction?.itemType === "vendor" ? "商家" : "商品"}吗？`
-                  ) 
-                : (language === 'en' 
-                    ? `Are you sure you want to reject this ${confirmAction?.itemType}?` 
-                    : `您确定要拒绝这个${confirmAction?.itemType === "vendor" ? "商家" : "商品"}吗？`
-                  )
-              }
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>
-              {language === 'en' ? "Cancel" : "取消"}
-            </AlertDialogCancel>
-            <AlertDialogAction onClick={confirmActionHandler}>
-              {language === 'en' ? "Confirm" : "确认"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
