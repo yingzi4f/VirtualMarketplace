@@ -1,8 +1,13 @@
-import { User, InsertUser, VendorProfile, InsertVendorProfile, Listing, InsertListing, Category, InsertCategory, Order, InsertOrder, OrderItem, InsertOrderItem, Payment, InsertPayment, Comment, InsertComment, UserSavedListing, InsertUserSavedListing } from "@shared/schema";
+import { User, InsertUser, VendorProfile, InsertVendorProfile, Listing, InsertListing, Category, InsertCategory, Order, InsertOrder, OrderItem, InsertOrderItem, Payment, InsertPayment, Comment, InsertComment, UserSavedListing, InsertUserSavedListing, users, vendorProfiles, categories, listings, orders, orderItems, payments, comments, userSavedListings } from "@shared/schema";
 import session from "express-session";
 import createMemoryStore from "memorystore";
+import connectPg from "connect-pg-simple";
+import { db, pool } from "./db";
+import { and, asc, desc, eq, like, or } from "drizzle-orm";
+import { json } from "drizzle-orm/pg-core";
 
 const MemoryStore = createMemoryStore(session);
+const PostgresSessionStore = connectPg(session);
 
 export interface IStorage {
   // User operations
@@ -483,4 +488,317 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+export class DatabaseStorage implements IStorage {
+  sessionStore: any;
+
+  constructor() {
+    this.sessionStore = new PostgresSessionStore({ 
+      pool, 
+      createTableIfMissing: true 
+    });
+  }
+
+  // User operations
+  async getUser(id: number): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user;
+  }
+
+  async createUser(user: InsertUser): Promise<User> {
+    const [createdUser] = await db.insert(users).values(user).returning();
+    return createdUser;
+  }
+
+  async updateUser(id: number, user: Partial<User>): Promise<User | undefined> {
+    const [updatedUser] = await db
+      .update(users)
+      .set({ ...user, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning();
+    return updatedUser;
+  }
+
+  // Vendor operations
+  async getVendorProfile(id: number): Promise<VendorProfile | undefined> {
+    const [profile] = await db.select().from(vendorProfiles).where(eq(vendorProfiles.id, id));
+    return profile;
+  }
+
+  async getVendorProfileByUserId(userId: number): Promise<VendorProfile | undefined> {
+    const [profile] = await db.select().from(vendorProfiles).where(eq(vendorProfiles.userId, userId));
+    return profile;
+  }
+
+  async createVendorProfile(profile: InsertVendorProfile): Promise<VendorProfile> {
+    const [createdProfile] = await db.insert(vendorProfiles).values(profile).returning();
+    return createdProfile;
+  }
+
+  async updateVendorProfile(id: number, profile: Partial<VendorProfile>): Promise<VendorProfile | undefined> {
+    const [updatedProfile] = await db
+      .update(vendorProfiles)
+      .set({ ...profile, updatedAt: new Date() })
+      .where(eq(vendorProfiles.id, id))
+      .returning();
+    return updatedProfile;
+  }
+
+  async getPendingVendors(): Promise<VendorProfile[]> {
+    return await db
+      .select()
+      .from(vendorProfiles)
+      .where(eq(vendorProfiles.verificationStatus, 'PENDING'));
+  }
+
+  // Listing operations
+  async getListing(id: number): Promise<Listing | undefined> {
+    const [listing] = await db.select().from(listings).where(eq(listings.id, id));
+    return listing;
+  }
+
+  async getListingsByVendorId(vendorId: number): Promise<Listing[]> {
+    return await db
+      .select()
+      .from(listings)
+      .where(eq(listings.vendorId, vendorId));
+  }
+
+  async getListingsByCategory(categoryId: number): Promise<Listing[]> {
+    return await db
+      .select()
+      .from(listings)
+      .where(
+        and(
+          eq(listings.categoryId, categoryId),
+          eq(listings.status, 'ACTIVE')
+        )
+      );
+  }
+
+  async getActiveListings(limit?: number, offset: number = 0): Promise<Listing[]> {
+    const query = db
+      .select()
+      .from(listings)
+      .where(eq(listings.status, 'ACTIVE'))
+      .orderBy(desc(listings.createdAt))
+      .offset(offset);
+    
+    if (limit !== undefined) {
+      return await query.limit(limit);
+    }
+    
+    return await query;
+  }
+
+  async getFeaturedListings(limit?: number): Promise<Listing[]> {
+    const query = db
+      .select()
+      .from(listings)
+      .where(eq(listings.status, 'ACTIVE'))
+      .orderBy(desc(listings.createdAt));
+    
+    if (limit !== undefined) {
+      return await query.limit(limit);
+    }
+    
+    return await query;
+  }
+
+  async getTopRatedListings(limit?: number): Promise<Listing[]> {
+    const query = db
+      .select()
+      .from(listings)
+      .where(eq(listings.status, 'ACTIVE'))
+      .orderBy(desc(listings.createdAt));
+    
+    if (limit !== undefined) {
+      return await query.limit(limit);
+    }
+    
+    return await query;
+  }
+
+  async getPendingListings(): Promise<Listing[]> {
+    return await db
+      .select()
+      .from(listings)
+      .where(eq(listings.status, 'PENDING'));
+  }
+
+  async searchListings(query: string): Promise<Listing[]> {
+    const searchTerm = `%${query}%`;
+    return await db
+      .select()
+      .from(listings)
+      .where(
+        and(
+          eq(listings.status, 'ACTIVE'),
+          or(
+            like(listings.titleEn, searchTerm),
+            like(listings.titleZh, searchTerm),
+            like(listings.descriptionEn, searchTerm),
+            like(listings.descriptionZh, searchTerm)
+          )
+        )
+      );
+  }
+
+  async createListing(listing: InsertListing): Promise<Listing> {
+    const [createdListing] = await db.insert(listings).values(listing).returning();
+    return createdListing;
+  }
+
+  async updateListing(id: number, listing: Partial<Listing>): Promise<Listing | undefined> {
+    const [updatedListing] = await db
+      .update(listings)
+      .set({ ...listing, updatedAt: new Date() })
+      .where(eq(listings.id, id))
+      .returning();
+    return updatedListing;
+  }
+
+  // Category operations
+  async getCategory(id: number): Promise<Category | undefined> {
+    const [category] = await db.select().from(categories).where(eq(categories.id, id));
+    return category;
+  }
+
+  async getCategoryBySlug(slug: string): Promise<Category | undefined> {
+    const [category] = await db.select().from(categories).where(eq(categories.slug, slug));
+    return category;
+  }
+
+  async getAllCategories(): Promise<Category[]> {
+    return await db.select().from(categories);
+  }
+
+  async createCategory(category: InsertCategory): Promise<Category> {
+    const [createdCategory] = await db.insert(categories).values(category).returning();
+    return createdCategory;
+  }
+
+  // Order operations
+  async getOrder(id: number): Promise<Order | undefined> {
+    const [order] = await db.select().from(orders).where(eq(orders.id, id));
+    return order;
+  }
+
+  async getOrdersByUserId(userId: number): Promise<Order[]> {
+    return await db
+      .select()
+      .from(orders)
+      .where(eq(orders.userId, userId))
+      .orderBy(desc(orders.createdAt));
+  }
+
+  async getOrderItemsByOrderId(orderId: number): Promise<OrderItem[]> {
+    return await db
+      .select()
+      .from(orderItems)
+      .where(eq(orderItems.orderId, orderId));
+  }
+
+  async createOrder(order: InsertOrder): Promise<Order> {
+    const [createdOrder] = await db.insert(orders).values(order).returning();
+    return createdOrder;
+  }
+
+  async createOrderItem(item: InsertOrderItem): Promise<OrderItem> {
+    const [createdItem] = await db.insert(orderItems).values(item).returning();
+    return createdItem;
+  }
+
+  async updateOrderStatus(id: number, status: string): Promise<Order | undefined> {
+    const [updatedOrder] = await db
+      .update(orders)
+      .set({ status, updatedAt: new Date() })
+      .where(eq(orders.id, id))
+      .returning();
+    return updatedOrder;
+  }
+
+  // Payment operations
+  async createPayment(payment: InsertPayment): Promise<Payment> {
+    const [createdPayment] = await db.insert(payments).values(payment).returning();
+    return createdPayment;
+  }
+
+  async getPaymentByOrderId(orderId: number): Promise<Payment | undefined> {
+    const [payment] = await db
+      .select()
+      .from(payments)
+      .where(eq(payments.orderId, orderId));
+    return payment;
+  }
+
+  async updatePaymentStatus(id: number, status: string): Promise<Payment | undefined> {
+    const [updatedPayment] = await db
+      .update(payments)
+      .set({ status, updatedAt: new Date() })
+      .where(eq(payments.id, id))
+      .returning();
+    return updatedPayment;
+  }
+
+  // Comment operations
+  async getCommentsByListingId(listingId: number): Promise<Comment[]> {
+    return await db
+      .select()
+      .from(comments)
+      .where(
+        and(
+          eq(comments.listingId, listingId),
+          eq(comments.status, 'APPROVED')
+        )
+      )
+      .orderBy(desc(comments.createdAt));
+  }
+
+  async createComment(comment: InsertComment): Promise<Comment> {
+    const [createdComment] = await db.insert(comments).values(comment).returning();
+    return createdComment;
+  }
+
+  async updateCommentStatus(id: number, status: string): Promise<Comment | undefined> {
+    const [updatedComment] = await db
+      .update(comments)
+      .set({ status, updatedAt: new Date() })
+      .where(eq(comments.id, id))
+      .returning();
+    return updatedComment;
+  }
+
+  // UserSavedListing operations
+  async getUserSavedListings(userId: number): Promise<UserSavedListing[]> {
+    return await db
+      .select()
+      .from(userSavedListings)
+      .where(eq(userSavedListings.userId, userId))
+      .orderBy(desc(userSavedListings.savedAt));
+  }
+
+  async createUserSavedListing(savedListing: InsertUserSavedListing): Promise<UserSavedListing> {
+    const [created] = await db.insert(userSavedListings).values(savedListing).returning();
+    return created;
+  }
+
+  async deleteUserSavedListing(userId: number, listingId: number): Promise<boolean> {
+    const result = await db
+      .delete(userSavedListings)
+      .where(
+        and(
+          eq(userSavedListings.userId, userId),
+          eq(userSavedListings.listingId, listingId)
+        )
+      );
+    return result.count > 0;
+  }
+}
+
+// Use this line to switch between memory storage and database storage
+export const storage = new DatabaseStorage();
