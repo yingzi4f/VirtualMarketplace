@@ -46,6 +46,14 @@ export const translations: TranslationsType = {
     en: 'Cart',
     zh: '购物车'
   },
+  vendors: {
+    en: 'Vendors',
+    zh: '商家'
+  },
+  blog: {
+    en: 'Blog',
+    zh: '博客'
+  },
   accountServices: {
     en: 'Accounting Services',
     zh: '会计服务'
@@ -215,6 +223,22 @@ export const translations: TranslationsType = {
   quantity: {
     en: 'Quantity',
     zh: '数量'
+  },
+  addedToCart: {
+    en: 'Added to Cart',
+    zh: '已添加到购物车'
+  },
+  removedFromCart: {
+    en: 'Removed from Cart',
+    zh: '已从购物车移除'
+  },
+  cartCleared: {
+    en: 'Cart Cleared',
+    zh: '购物车已清空'
+  },
+  cartClearedDescription: {
+    en: 'Your cart has been cleared',
+    zh: '您的购物车已被清空'
   },
   
   // Footer

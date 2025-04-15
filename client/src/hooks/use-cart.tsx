@@ -1,6 +1,7 @@
 import { createContext, ReactNode, useContext, useState, useEffect } from "react";
 import { Listing } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+import { useLanguage } from "@/hooks/use-language";
 
 interface CartItem {
   listing: Listing;
@@ -24,6 +25,7 @@ const CART_STORAGE_KEY = 'cimplico_cart';
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
   const { toast } = useToast();
+  const { t, language } = useLanguage();
   
   // Load cart from localStorage on mount
   useEffect(() => {
@@ -65,16 +67,20 @@ export function CartProvider({ children }: { children: ReactNode }) {
         updatedItems[existingItemIndex].quantity += quantity;
         
         toast({
-          title: "Added to Cart",
-          description: `Updated quantity for "${listing.titleEn}"`,
+          title: t('addedToCart'),
+          description: language === 'en' 
+            ? `Updated quantity for "${listing.titleEn}"`
+            : `已更新"${listing.titleZh}"的数量`,
         });
         
         return updatedItems;
       } else {
         // Add new item to cart
         toast({
-          title: "Added to Cart",
-          description: `Added "${listing.titleEn}" to your cart`,
+          title: t('addedToCart'),
+          description: language === 'en' 
+            ? `Added "${listing.titleEn}" to your cart`
+            : `已将"${listing.titleZh}"添加到购物车`,
         });
         
         return [...prevItems, { listing, quantity }];
@@ -88,8 +94,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
       
       if (itemToRemove) {
         toast({
-          title: "Removed from Cart",
-          description: `Removed "${itemToRemove.listing.titleEn}" from your cart`,
+          title: t('removedFromCart'),
+          description: language === 'en' 
+            ? `Removed "${itemToRemove.listing.titleEn}" from your cart`
+            : `已从购物车中移除"${itemToRemove.listing.titleZh}"`,
         });
       }
       
@@ -115,8 +123,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const clearCart = () => {
     setItems([]);
     toast({
-      title: "Cart Cleared",
-      description: "Your cart has been cleared",
+      title: t('cartCleared'),
+      description: t('cartClearedDescription'),
     });
   };
   
