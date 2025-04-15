@@ -14,6 +14,10 @@ import AdminDashboard from "@/pages/admin-dashboard";
 import NotFound from "@/pages/not-found";
 import { ProtectedRoute } from "@/lib/protected-route";
 import { UserRole } from "@shared/schema";
+import { LanguageProvider } from "@/hooks/use-language";
+import { AuthProvider } from "@/hooks/use-auth";
+import { CartProvider } from "@/hooks/use-cart";
+import { FavoritesProvider } from "@/hooks/use-favorites";
 
 function Router() {
   return (
@@ -36,13 +40,21 @@ function Router() {
 
 function App() {
   return (
-    <div className="flex flex-col min-h-screen">
-      <Navbar />
-      <main className="flex-grow">
-        <Router />
-      </main>
-      <Footer />
-    </div>
+    <LanguageProvider>
+      <AuthProvider>
+        <CartProvider>
+          <FavoritesProvider>
+            <div className="flex flex-col min-h-screen">
+              <Navbar />
+              <main className="flex-grow">
+                <Router />
+              </main>
+              <Footer />
+            </div>
+          </FavoritesProvider>
+        </CartProvider>
+      </AuthProvider>
+    </LanguageProvider>
   );
 }
 

@@ -11,15 +11,7 @@ import { Toaster } from "@/components/ui/toaster";
 
 createRoot(document.getElementById("root")!).render(
   <QueryClientProvider client={queryClient}>
-    <LanguageProvider>
-      <AuthProvider>
-        <CartProvider>
-          <FavoritesProvider>
-            <App />
-            <Toaster />
-          </FavoritesProvider>
-        </CartProvider>
-      </AuthProvider>
-    </LanguageProvider>
+    <App />
+    <Toaster />
   </QueryClientProvider>
 );
